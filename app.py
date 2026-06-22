@@ -1,5 +1,6 @@
 import os
 import re
+import pandas as pd
 import streamlit as st
 from dotenv import load_dotenv
 
@@ -10,9 +11,11 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain.chains import RetrievalQA
 
 # ---------------- LOAD ENV ----------------
+
 load_dotenv()
 
 # ---------------- PAGE CONFIG ----------------
+
 st.set_page_config(
     page_title="AI Document Search Engine",
     page_icon="📂",
@@ -33,10 +36,15 @@ if not st.session_state.logged_in:
 
     st.title("🔐 Secure Login")
 
-    st.markdown("Please login to access the Document Search System")
+    st.markdown(
+        "Please login to access the Document Search System"
+    )
 
     username = st.text_input("Username")
-    password = st.text_input("Password", type="password")
+    password = st.text_input(
+        "Password",
+        type="password"
+    )
 
     if st.button("Login"):
 
@@ -47,7 +55,6 @@ if not st.session_state.logged_in:
 
             st.session_state.logged_in = True
             st.success("Login Successful!")
-
             st.rerun()
 
         else:
@@ -55,10 +62,203 @@ if not st.session_state.logged_in:
 
     st.stop()
 
-# ---------------- HELPER FUNCTION ----------------
+# ---------------- HELPER FUNCTIONS ----------------
 
 def normalize(text):
-    return re.sub(r'[^a-zA-Z0-9]', '', text.lower())
+    return re.sub(
+        r'[^a-zA-Z0-9]',
+        '',
+        text.lower()
+    )
+
+
+def answer_csv_question(question):
+
+    try:
+
+        csv_files = []
+
+        # Get all CSV files
+        for file in os.listdir("documents"):
+
+            if file.endswith(".csv"):
+
+                csv_files.append(
+                    os.path.join("documents", file)
+                )
+
+        if len(csv_files) == 0:
+            return None
+
+        # Read first CSV
+        df = None
+
+        for csv_file in csv_files:
+            temp_df = pd.read_csv(csv_file)
+            cols = [c.lower() for c in temp_df.columns]
+            if "gender" in cols or "sex" in cols:
+                df = temp_df
+                break
+            if df is None:
+                df = pd.read_csv(csv_files[0])
+
+        # Show columns in sidebar
+        st.sidebar.markdown("### CSV Columns")
+        st.sidebar.write(df.columns.tolist())
+
+        q = question.lower()
+
+        # ---------------- TOTAL RECORDS ----------------
+
+        if (
+            "how many" in q and
+            (
+                "records" in q or
+                "rows" in q or
+                "entries" in q
+            )
+        ):
+
+            return f"📊 Total Records: {len(df)}"
+
+        # ---------------- TOTAL SALES ----------------
+
+        if "how many sales" in q:
+
+            return f"💰 Total Sales Records: {len(df)}"
+
+        # ---------------- MALE/FEMALE COUNT ----------------
+
+        if "male" in q and "female" in q:
+
+            gender_col = None
+
+            for col in df.columns:
+
+                col_name = col.lower().strip()
+
+                if (
+                    "gender" in col_name or
+                    "sex" in col_name
+                ):
+
+                    gender_col = col
+                    break
+
+            if gender_col:
+
+                counts = (
+                    df[gender_col]
+                    .astype(str)
+                    .str.lower()
+                    .str.strip()
+                    .value_counts()
+                )
+
+                male_count = 0
+                female_count = 0
+
+                for key, value in counts.items():
+
+                    if key in ["male", "m"]:
+                        male_count += value
+
+                    elif key in ["female", "f"]:
+                        female_count += value
+
+                return (
+                    f"👨 Male Count: {male_count}\n\n"
+                    f"👩 Female Count: {female_count}"
+                )
+
+            else:
+
+                return (
+                    "❌ Gender column not found.\n\n"
+                    f"Available Columns:\n"
+                    f"{', '.join(df.columns)}"
+                )
+
+        # ---------------- AVERAGE ----------------
+
+        if "average" in q:
+
+            numeric_cols = df.select_dtypes(
+                include="number"
+            ).columns
+
+            if len(numeric_cols) > 0:
+
+                col = numeric_cols[0]
+
+                avg = round(
+                    df[col].mean(),
+                    2
+                )
+
+                return (
+                    f"📈 Average value of "
+                    f"'{col}' = {avg}"
+                )
+
+        # ---------------- TOTAL OF A COLUMN ----------------
+
+        if "total" in q:
+
+            numeric_cols = df.select_dtypes(
+                include="number"
+            ).columns
+
+            for col in numeric_cols:
+
+                if col.lower() in q:
+
+                    total = round(df[col].sum(), 2)
+
+                    return (
+                        f"📊 Total {col}: {total}"
+                    )
+
+        # ---------------- MAX VALUE ----------------
+
+        if "maximum" in q or "highest" in q:
+
+            numeric_cols = df.select_dtypes(
+                include="number"
+            ).columns
+
+            if len(numeric_cols) > 0:
+
+                col = numeric_cols[0]
+
+                return (
+                    f"📈 Highest {col}: "
+                    f"{df[col].max()}"
+                )
+
+        # ---------------- MIN VALUE ----------------
+
+        if "minimum" in q or "lowest" in q:
+
+            numeric_cols = df.select_dtypes(
+                include="number"
+            ).columns
+
+            if len(numeric_cols) > 0:
+
+                col = numeric_cols[0]
+
+                return (
+                    f"📉 Lowest {col}: "
+                    f"{df[col].min()}"
+                )
+
+        return None
+
+    except Exception as e:
+
+        return f"CSV Error: {str(e)}"
+
 
 # ---------------- SESSION STATE ----------------
 
@@ -80,6 +280,8 @@ with st.sidebar:
 
     ✅ Semantic Search
 
+    ✅ CSV Analytics
+
     ✅ Document Question Answering
 
     ✅ Download Documents
@@ -89,7 +291,7 @@ with st.sidebar:
 
     st.markdown("---")
 
-    st.success("Logged in as User")
+    st.success("Logged in Successfully")
 
     if st.button("Logout"):
 
@@ -142,8 +344,6 @@ if query:
 
     st.session_state.history.append(query)
 
-    # -------- FILE NAME SEARCH --------
-
     st.subheader("📁 File Name Matches")
 
     filename_matches = []
@@ -168,8 +368,6 @@ if query:
 
                 st.success("Matching file found")
 
-                st.write(f"**File Name:** {file}")
-
                 with open(path, "rb") as f:
 
                     st.download_button(
@@ -182,7 +380,7 @@ if query:
     else:
         st.info("No filename matches found.")
 
-    # -------- SEMANTIC SEARCH --------
+    # Semantic Search
 
     st.subheader("🧠 Semantic Search Results")
 
@@ -193,106 +391,111 @@ if query:
 
     displayed_files = set()
 
-    if results:
+    for doc, score in results:
 
-        for doc, score in results:
+        filename = doc.metadata.get(
+            "filename",
+            "Unknown"
+        )
 
-            filename = doc.metadata.get(
-                "filename",
-                "Unknown"
-            )
+        if filename not in displayed_files:
 
-            if filename not in displayed_files:
+            displayed_files.add(filename)
 
-                displayed_files.add(filename)
+            with st.expander(f"📄 {filename}"):
 
-                with st.expander(f"📄 {filename}"):
+                st.write(
+                    doc.page_content[:700]
+                )
 
-                    st.write("### Preview")
-
-                    st.write(doc.page_content[:700])
-
-                    st.write(
-                        f"**Similarity Score:** {round(score, 2)}"
-                    )
-
-                    file_path = doc.metadata.get(
-                        "filepath",
-                        ""
-                    )
-
-                    if os.path.exists(file_path):
-
-                        with open(file_path, "rb") as f:
-
-                            st.download_button(
-                                label=f"⬇ Download {filename}",
-                                data=f,
-                                file_name=filename,
-                                key=f"download_{filename}"
-                            )
-
-    else:
-        st.warning("No semantic matches found.")
+                st.write(
+                    f"Similarity Score: "
+                    f"{round(score,2)}"
+                )
 
 # ---------------- QUESTION ANSWERING ----------------
 
 st.markdown("---")
 
-st.subheader("💬 Ask Questions About Your Documents")
+st.subheader(
+    "💬 Ask Questions About Your Documents"
+)
 
 question = st.text_input(
-    "Example: How many sales happened?"
+    "Example: How many males and females are there?"
 )
 
 if question:
 
-    with st.spinner("Generating answer..."):
+    # Try CSV analysis first
 
-        retriever = db.as_retriever(
-            search_kwargs={"k": 5}
-        )
+    csv_answer = answer_csv_question(
+        question
+    )
 
-        llm = ChatGoogleGenerativeAI(
-            model="gemini-2.5-flash",
-            temperature=0.3
-        )
-
-        qa_chain = RetrievalQA.from_chain_type(
-            llm=llm,
-            chain_type="stuff",
-            retriever=retriever,
-            return_source_documents=True
-        )
-
-        response = qa_chain.invoke(
-            {"query": question}
-        )
+    if csv_answer:
 
         st.subheader("🤖 Answer")
 
-        st.success(response["result"])
+        st.success(csv_answer)
 
-        st.subheader("📚 Source Documents")
+    else:
 
-        displayed_sources = set()
+        with st.spinner(
+                "Generating answer..."):
 
-        for doc in response["source_documents"]:
-
-            filename = doc.metadata.get(
-                "filename",
-                "Unknown"
+            retriever = db.as_retriever(
+                search_kwargs={"k": 5}
             )
 
-            if filename not in displayed_sources:
+            llm = ChatGoogleGenerativeAI(
+                model="gemini-2.5-flash",
+                temperature=0.3
+            )
 
-                displayed_sources.add(filename)
+            qa_chain = RetrievalQA.from_chain_type(
+                llm=llm,
+                chain_type="stuff",
+                retriever=retriever,
+                return_source_documents=True
+            )
 
-                with st.expander(f"📄 {filename}"):
+            response = qa_chain.invoke(
+                {"query": question}
+            )
 
-                    st.write(doc.page_content[:700])
+            st.subheader("🤖 Answer")
 
-# ---------------- SEARCH HISTORY ----------------
+            st.success(
+                response["result"]
+            )
+
+            st.subheader(
+                "📚 Source Documents"
+            )
+
+            shown = set()
+
+            for doc in response[
+                    "source_documents"]:
+
+                filename = doc.metadata.get(
+                    "filename",
+                    "Unknown"
+                )
+
+                if filename not in shown:
+
+                    shown.add(filename)
+
+                    with st.expander(
+                            f"📄 {filename}"):
+
+                        st.write(
+                            doc.page_content[:700]
+                        )
+
+# ---------------- HISTORY ----------------
 
 if st.session_state.history:
 
